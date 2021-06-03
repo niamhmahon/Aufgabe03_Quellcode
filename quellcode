@@ -1,0 +1,156 @@
+#define BLYNK_PRINT Serial
+
+#define FASTLED_ALLOW_INTERRUPTS 0
+#define FASTLED_ESP8266_RAW_PIN_ORDER
+#include "FastLED.h"
+#include <ESP8266WiFi.h>
+#include <BlynkSimpleEsp8266.h>
+#include <SPI.h>
+
+#include <TimeLib.h>
+#include <NTPClient.h>
+#include <WiFiUdp.h>
+
+#define DATA_PIN D3
+#define NUM_LEDS 8
+#define Switch D1
+CRGB leds[NUM_LEDS];
+boolean virtualButton;
+boolean digitalButton;
+boolean weekdaySelected[7];
+WiFiUDP ntpUDP;
+NTPClient timeClient(ntpUDP, "de.pool.ntp.org");
+int startHour;
+int startMinute;
+
+// Blynk connection
+char auth[] = "mhcfiyKla5IB5SQR5lXmTtXU9l6hZfK8";
+char ssid[] = "ninaninaninaninaa";
+char pass[] = "pucacatrttie";
+
+// time
+BLYNK_WRITE (V1) {
+  TimeInputParam t(param); 
+
+
+  Serial.println(String("Wake-up: ") + t.getStartHour() + ":" + t.getStartMinute());
+
+
+  startHour = t.getStartHour();
+  startMinute = t.getStartMinute();
+  if (startMinute-30 < 0) {
+    startMinute = 60 + (startMinute - 30);
+    if (startHour == 0) {
+      startHour = 23;
+    } else {
+      startHour -= 1; 
+    }
+  } else {
+    startMinute -= 30;
+  }
+
+
+  for (int i = 1; i <= 7; i++) {
+    if (t.isWeekdaySelected(i)) {
+      Serial.println(String("Day ") + i + " has been set.");
+      weekdaySelected[i-1] = true;
+    } else {
+      weekdaySelected[i-1] = false;
+    }
+  }
+  
+}
+
+
+BLYNK_WRITE (V0) {
+  virtualButton = true; 
+  Serial.println(virtualButton); 
+}
+
+//Brighten method
+void brighten() {
+  for(int i = 0; i < 100; i++) {
+    Blynk.run();
+    readSwitch();
+    Serial.println(virtualButton);
+    Serial.println(digitalButton);
+    if (virtualButton == 1 || digitalButton == 1) {
+      FastLED.setBrightness(0);
+      FastLED.show();
+      digitalButton = 0;
+      virtualButton = 0;
+      return;
+    } else {
+      FastLED.setBrightness(i); 
+      FastLED.show(); 
+      delay(1800000/100);
+    }
+  }
+  
+  FastLED.setBrightness(0);
+  FastLED.show(); 
+}
+
+
+void readSwitch() {
+  if(digitalRead(Switch) == HIGH) {
+    digitalButton = 1;
+  }
+}
+
+
+void showTimes() {
+  timeClient.update();
+  Serial.print("current time: "); 
+  Serial.print(timeClient.getHours());
+  Serial.print(":");
+  Serial.print(timeClient.getMinutes());
+  Serial.println("");
+  Serial.print("Start: "); 
+  Serial.print(startHour);
+  Serial.print(":");
+  Serial.print(startMinute);
+  Serial.println("");
+  Serial.print("Day: ");
+  Serial.print(timeClient.getDay());
+}
+
+void setup() {
+ 
+  Serial.begin(9600); 
+  Blynk.begin(auth, ssid, pass, "iot.informatik.uni-oldenburg.de", 8080);
+  WiFi.begin(ssid, pass);
+  while(WiFi.status() !=WL_CONNECTED){
+    delay(500);
+    Serial.println(".");
+  }
+
+  FastLED.addLeds<WS2811, DATA_PIN, GRB>(leds, NUM_LEDS).setCorrection(TypicalLEDStrip);
+  FastLED.setBrightness(0); 
+  FastLED.setMaxPowerInVoltsAndMilliamps(5, 400);
+  for(int i = 0; i < NUM_LEDS; i++) {
+    leds[i] = 0xFF8000; //Dark Orange
+    FastLED.show();
+  }
+
+ 
+  timeClient.begin();
+  timeClient.setTimeOffset(3600);
+
+}
+
+void loop() {
+  Blynk.run();
+  
+
+  if (timeClient.getHours() == startHour && 
+        timeClient.getMinutes() == startMinute && 
+        timeClient.getSeconds() < 3 &&
+        weekdaySelected[timeClient.getDay()-1]) {
+    brighten();
+  } else {
+    Serial.println("wait for start");
+    showTimes();
+  }
+  delay(1000);
+}
